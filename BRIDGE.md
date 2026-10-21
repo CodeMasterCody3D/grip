@@ -16,6 +16,11 @@ Portability verification passed 127 Python and four JavaScript checks, without
 failures, skips or source drift, from a relocated checkout whose path has spaces.
 This proves fixture coverage for that release, not a new live deployment.
 
-Personal historical files are ignored and retained locally, including pre-edit
-source snapshots. Old Git commits still contain historical deployment material;
-the portable-source cleanup does not rewrite or erase that history.
+Personal historical files are ignored and retained in restricted local backups,
+including exact pre-edit source snapshots. The authorized publication cleanup
+replaced reachable branch history with the reviewed portable source tree and
+no-reply commit metadata. Application/source bytes were preserved; no live mission
+or existing watcher was migrated or restarted by that history replacement.
+
+Do not push old backup refs or archives into the source repository. Old public
+clones and hosting caches are not proven erased by a branch replacement.

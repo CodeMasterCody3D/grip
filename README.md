@@ -69,9 +69,14 @@ Legacy profiles without `backup_directory` retain checkout-local storage, but
 backups into a public remote are always refused. Do not change a live mission's
 backup directory without explicitly migrating its existing vault and records.
 
-Personal archives, deployment evidence and local mission state are ignored in this
-public source tree. Historical commits predate this separation and can still contain
-old deployment paths; this cleanup does not rewrite Git history.
+Personal archives, deployment evidence and local mission state are ignored in the
+source tree. The published branch history was replaced with the reviewed portable
+source snapshot to exclude earlier private deployment archives. Original history
+is retained only in restricted backups; previously downloaded copies and hosting
+caches cannot be recalled by replacing a branch.
+
+Use your verified GitHub no-reply email for public-source commits. Audit reachable
+history, not just the latest file tree, before changing repository visibility.
 
 ### Project-specific progress is opt-in
 

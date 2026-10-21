@@ -37,6 +37,11 @@ backup directory and optional progress layout. Skill location and cache roots
 are current-user-derived or explicitly configured; see the README.
 
 Modes Two and Three are undefined; strategy records are not learned abilities.
-Private deployment records and immutable source snapshots stay local. Removing
-archives from the current Git tree does not remove them from older commits.
+Private deployment records and immutable source snapshots stay in separately
+selected private storage. Removing archives from the current Git tree alone does
+not remove them from older commits. The reviewed published branch now starts at
+the portable-source snapshot, with restricted original backups preserved.
 Do not rewrite history or migrate/restart a live mission without authorization.
+
+Use verified GitHub no-reply commit metadata. Published source must never be used
+as a destination for private mission archives, even while visibility is private.

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 names = ["grip.py", "mission.py", "objective_watch.py", "tests/test_objective_watch.py", "progress_watch.py", "completion.py", "event_hooks.py",
-         "plugins/grip-events.mjs", "stream_events.py", "v2_control.py", "tests/test_v2_control.py", "tests/test_stream_events.py", "tests/test_grip.py", "tests/test_mission.py",
+          "plugins/grip-events.mjs", "stream_events.py", "v2_control.py", "tests/test_v2_control.py", "tests/test_stream_events.py", "tests/test_grip.py", "tests/test_mission.py", "tests/test_recovery.py", "tests/test_standby.py", "reasoning_modes.json",
           "tests/test_completion.py", "tests/test_events.py", "tests/test_hook_bridge.mjs", "tests/test_portability.py", "tests/verify_activation.py"]
 def hashes():
     return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in names}

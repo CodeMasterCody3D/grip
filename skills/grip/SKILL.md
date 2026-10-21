@@ -203,6 +203,32 @@ blanket git reset/restore on a dirty user workspace.
 
 ## Choose the next attempt
 
+### Investigate blocked work and interrupted completion
+
+- Read `reasoning_modes.json` for General reasoning, Build and engineering, and
+  Creation Mode. Use their investigation, falsifier and engineering procedures;
+  they are strategy specifications, not learned capabilities or Modes Two/Three.
+- Diagnose before changing a flag. Save the before-state; verify the exact bound
+  session, iteration, evidence hashes and private completion bank. A terminal
+  iteration with an old active lease is not permission to rerun its work.
+- `finish` is repeatable for the same sealed request. After an interrupted push,
+  it checks saved remote proof before any new bank; after receipt persistence it
+  reconciles state without duplicating the family attempt or checkpoint work.
+- Legacy repair uses `recover-finish --iteration ID --session-id ACTUAL
+  --record-sha256 HASH --revision CURRENT --note AUTHORITY`. It banks the
+  before-state, verifies proof and reconciles only the stale completion lease.
+  It never resumes a paused mission or clears task/goal blockers. Review each
+  separate infrastructure block explicitly using the revision-checked task and
+  objective operations; preserve genuine prerequisites and human boundaries.
+- `protect` enables one passive standby for an already verified primary. It
+  shares serialized startup, the exclusive primary lease and state dispatch lock.
+  It never dispatches itself or kills a live poller. A dead primary can be
+  restarted with flags unchanged; a live hang, missing ownership, changed binding
+  or uncertain dispatch outcome is recorded for investigation, not bypassed.
+- `unprotect` disables standby without resuming work. A human Stop/Pause remains
+  effective across a primary restart. Never force an autonomous proof on real
+  work when isolated fault-injection evidence can test the recovery boundary.
+
 Default mission policy:at least three distinct causal variants per method before
 parking it, with a recorded revisit condition. That is a minimum scientific
 exploration target, not permission to ignore a fatal constraint or run indefinitely.

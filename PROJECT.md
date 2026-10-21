@@ -45,3 +45,31 @@ Do not rewrite history or migrate/restart a live mission without authorization.
 
 Use verified GitHub no-reply commit metadata. Published source must never be used
 as a destination for private mission archives, even while visibility is private.
+
+## Known service-restart failure
+
+The service's wildcard bind address is not its client connection address. Exact
+text comparison previously rejected the same local service after its advertised
+host changed. Local endpoint comparison now accepts wildcard-listener metadata
+only as its matching loopback address and port. Remote hosts, changed ports and
+non-loopback client targets remain refused. Actual endpoint adoption still checks
+the bound session and directory; pauses, blocks and completed work stay intact.
+
+## Completion and standby recovery
+
+`finish` seals its request and saved evidence before banking, then persists a
+finish receipt before lease release. Retrying the same request verifies the saved
+bank instead of replaying the experiment or duplicating an attempt. Legacy
+terminal/lease mismatches use explicit `recover-finish` with session, revision,
+record hash and authority note. Recovery verifies proof, banks the before-state,
+and does not resume a paused mission or clear task/goal blockers by itself.
+
+`protect` enables a passive standby for a verified primary. It does not dispatch
+or kill live pollers: it diagnoses alive-but-unhealthy cases and restarts only a
+proven-dead owner through the existing startup/primary/state locks. Lost-owner
+receipts retain PID/start identity for investigation. Ambiguous dispatch outcomes
+are durably retained and never silently replayed after a primary crash.
+
+Use the existing reasoning strategy specifications for investigation and testing.
+They do not create learned abilities or define Modes Two/Three. Preserve completed
+project work and genuine permission, resource, data and recipe blockers.

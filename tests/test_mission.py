@@ -232,16 +232,18 @@ class WakeSafety(unittest.TestCase):
             self.assertIn(required, text)
 
     def test_start_reuses_verified_watcher_without_launch(self):
-        with patch.object(grip, "watcher_status", return_value={"alive": True, "pid": 7}), \
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(grip, "watcher_status", return_value={"alive": True, "pid": 7}), \
              patch.object(grip, "command", side_effect=AssertionError("duplicate watcher")):
-            self.assertTrue(grip.start_watch("/fixture/state.json")["reused"])
+            self.assertTrue(grip.start_watch(Path(tmp)/'state.json')["reused"])
 
     def test_foreign_named_tmux_is_never_overwritten(self):
-        with patch.object(grip, "watcher_status", return_value={"alive": False}), \
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(grip, "watcher_status", return_value={"alive": False}), \
              patch.object(grip.subprocess, "run", return_value=type("Exit", (), {"returncode": 0})()), \
              patch.object(grip, "command", side_effect=AssertionError("must not kill or replace")):
             with self.assertRaisesRegex(RuntimeError, "do not overwrite"):
-                grip.start_watch("/fixture/state.json")
+                grip.start_watch(Path(tmp)/'state.json')
 
     def test_unknown_pid_cannot_count_as_running_watcher(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -350,6 +352,36 @@ class WatcherLifecycle(unittest.TestCase):
             while grip.watcher_status(self.path)["alive"] and time.monotonic() < until:
                 time.sleep(0.02)
             self.assertFalse(grip.watcher_status(self.path)["alive"], "owned fixture watcher did not stop")
+
+    def stop_owned_standby(self):
+        record = grip.standby_status(self.path)
+        if record['alive']:
+            os.kill(record['pid'], signal.SIGTERM)
+            until = time.monotonic()+4
+            while grip.standby_status(self.path)['alive'] and time.monotonic() < until:
+                time.sleep(0.02)
+            self.assertFalse(grip.standby_status(self.path)['alive'])
+
+    def test_standby_recovers_killed_primary_once_without_dispatch_or_unpausing(self):
+        primary = self.cli('activate', '--mission', str(self.plan_path), '--profile', str(self.profile))['watcher']
+        self.cli('pause')
+        original = grip.load(self.path)
+        protected = self.cli('protect', '--interval-seconds', '0.05')
+        self.addCleanup(self.stop_owned_standby)
+        self.assertTrue(protected['standby_process']['alive'])
+        repeated = self.cli('protect', '--interval-seconds', '0.05')
+        self.assertEqual(repeated['standby_process']['pid'], protected['standby_process']['pid'])
+        os.kill(primary['pid'], signal.SIGKILL)  # only the test-owned fake-session watcher
+        until = time.monotonic()+8
+        while time.monotonic() < until:
+            current = grip.watcher_status(self.path)
+            if current['alive'] and current['pid'] != primary['pid']: break
+            time.sleep(0.02)
+        self.assertTrue(current['alive']); self.assertNotEqual(current['pid'], primary['pid'])
+        self.assertEqual(grip.start_watch(self.path)['pid'], current['pid'])
+        after = grip.load(self.path)
+        self.assertEqual(after['status'], 'paused'); self.assertEqual(after['tasks'], original['tasks'])
+        self.assertEqual(self.writes, [])
 
     def test_activation_starts_once_reuses_and_all_done_stops_waking(self):
         result = self.cli("activate", "--mission", str(self.plan_path), "--profile", str(self.profile))

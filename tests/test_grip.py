@@ -86,6 +86,22 @@ class Wake(unittest.TestCase):
         with patch.object(grip,"Client",Fake),patch.object(grip,"checkpoint",side_effect=AssertionError("backup")):
             self.assertEqual(grip.tick(state(),True)["stage"],"would_dispatch")
 
+    def test_ambiguous_dispatch_survives_crash_and_is_not_replayed(self):
+        s=state(); s.update(workspace='/fixture',compute_target='fixture',provider_id='fixture',model_id='fixture',project_id='fixture')
+        calls=[]
+        class Fake:
+            def __init__(self, state): pass
+            def snapshot(self): return {'type':'idle'},messages()
+            def request(self,*args): calls.append(args); raise RuntimeError('accepted but response lost')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'state.json';s['state_path']=str(path);grip.atomic(path,s)
+            with patch.object(grip,'Client',Fake),patch.object(grip,'checkpoint',return_value={}):
+                with self.assertRaisesRegex(RuntimeError,'response lost'):grip.tick(s)
+                restarted=grip.load(path)
+                self.assertEqual(restarted['dispatch_intent']['status'],'pending')
+                self.assertEqual(grip.tick(restarted)['stage'],'needs_investigation')
+            self.assertEqual(len(calls),1)
+
 class ProgressWatch(unittest.TestCase):
     def configured(self):
         s=state();s.update(workspace='/fixture',project_id='fixture',state_path='/fixture/state.json',compute_target='assigned only')

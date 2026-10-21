@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import time
+import urllib.parse
 
 KINDS = {"tool_start", "tool_end", "turn_start", "turn_end", "idle", "interrupted", "agent", "hook_loaded", "hook_failed"}
 
@@ -16,11 +17,33 @@ def cache_root():
     return (Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")).expanduser() / "grip").resolve()
 
 
+def local_endpoint(url, *, listener=False):
+    """Compare local endpoints; wildcard bind addresses are metadata, not targets."""
+    message = 'Only an owned loopback OpenCode server is supported'
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port if parsed.port is not None else 80
+        if (parsed.scheme != 'http' or parsed.username is not None or parsed.password is not None
+                or parsed.path not in ('', '/') or parsed.query or parsed.fragment
+                or not 1 <= port <= 65535):
+            raise ValueError(message)
+        if listener:
+            host = {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
+        if host == 'localhost':
+            host = '127.0.0.1'
+        if host not in ('127.0.0.1', '::1'):
+            raise ValueError(message)
+    except (TypeError, ValueError):
+        raise ValueError(message) from None
+    return 'http://' + ('[::1]' if host == '::1' else host) + ':' + str(port)
+
+
 def control_password(state):
     """Read the existing owned control credential; never copy it into the mission."""
     if state.get('server_service_file'):
         service = json.loads(Path(state['server_service_file']).read_text())
-        if service.get('url', '').rstrip('/') != state['server_url'].rstrip('/'):
+        if local_endpoint(service.get('url', ''), listener=True) != local_endpoint(state['server_url']):
             raise ValueError('Service endpoint changed; explicitly re-adopt and verify session identity')
         return service['password']
     return Path(state['server_secret_file']).read_text().strip()

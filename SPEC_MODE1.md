@@ -17,6 +17,9 @@ session/compute/backup profile. No example grants execution permission.
 8. A separate challenge must pass; failures preserve history and return to repair.
 9. Inferred work and undefined modes never enlarge permissions.
 10. Stop, Pause, planning mode and newer human input take priority.
+11. Investigate before acting; clear only flags proven stale by owned saved proof.
+12. Standby and primary share one dispatch gate; standby has no independent prompt path.
+13. Interrupted completion must be repeatable without replaying work or duplicating attempts.
 
 ## Observable acceptance
 
@@ -38,6 +41,28 @@ Full-goal closure matches the exact recorded objective, scope, current signature
 and all eleven review questions. Completed tasks and a banked iteration are
 prerequisites; Mode One also requires the verified spec audit and challenge.
 Blocked objectives suppress wakes without being declared completed.
+
+## Reliability recovery acceptance
+
+Back up before reconciliation. Verify bound session/directory, revision, terminal
+record hash, evidence/vault integrity and private completion-bank ancestry. Reject
+unknown ownership, changed evidence or conflicting outcomes. Recovery of a lease
+does not clear a human pause or genuine task/goal prerequisite; infrastructure-only
+release requires a separate explicit evidence-backed review.
+
+Inject failure after terminal preparation, after backup acceptance and after finish
+receipt persistence but before state save. Retrying must retain one attempt and
+reuse verified saved work. Unknown prompt acceptance is an investigation blocker,
+not permission to send again. A live-but-unhealthy primary is not proof of death.
+
+Fault tests must verify a standby can recover a proven-dead primary through the
+same startup/primary/state locks without dispatching independently, unpausing a
+mission or reopening completed work. Test on fake sessions, not by interrupting
+real model work. Observe live monitoring separately from a real autonomous wake.
+
+Apply General reasoning, Build and engineering, and Creation Mode as the existing
+investigation specifications. Report programmed procedures and measured evidence;
+do not claim trained capabilities or add policy for undefined operating modes.
 
 ## Portability and safety
 

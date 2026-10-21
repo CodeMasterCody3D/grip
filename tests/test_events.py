@@ -109,6 +109,72 @@ class Events(unittest.TestCase):
             state['server_url'] = 'http://127.0.0.1:5678'
             with self.assertRaisesRegex(ValueError, 'endpoint changed'): event_hooks.control_password(state)
 
+    def test_wildcard_listener_metadata_matches_same_loopback_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'service.json'
+            for listener, client in [('0.0.0.0', '127.0.0.1'), ('127.0.0.1', '127.0.0.1'),
+                                     ('localhost', '127.0.0.1'), ('0.0.0.0', 'localhost'),
+                                     ('[::]', '[::1]'), ('[::1]', '[::1]')]:
+                with self.subTest(listener=listener, client=client):
+                    path.write_text(json.dumps({'url': 'http://' + listener + ':1234', 'password': 'fixture-not-real'}))
+                    state = {'server_url': 'http://' + client + ':1234', 'server_service_file': str(path)}
+                    self.assertEqual(event_hooks.control_password(state), 'fixture-not-real')
+
+    def test_listener_alias_does_not_permit_changed_port_or_remote_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'service.json'
+            state = {'server_url': 'http://127.0.0.1:1234', 'server_service_file': str(path)}
+            for url in ('http://0.0.0.0:5678', 'http://remote.invalid:1234'):
+                with self.subTest(url=url):
+                    path.write_text(json.dumps({'url': url, 'password': 'fixture-not-real'}))
+                    with self.assertRaises(ValueError): event_hooks.control_password(state)
+
+    def test_loopback_normalization_is_strict_and_listener_only(self):
+        self.assertEqual(event_hooks.local_endpoint('http://localhost:1234/'), 'http://127.0.0.1:1234')
+        self.assertEqual(event_hooks.local_endpoint('http://[::]:1234', listener=True), 'http://[::1]:1234')
+        for url in ('http://0.0.0.0:1234', 'http://[::]:1234', 'https://127.0.0.1:1234',
+                    'http://remote.invalid:1234', 'http://user@127.0.0.1:1234',
+                    'http://127.0.0.1:1234/?redirect=1', 'http://127.0.0.1:1234/api',
+                    'http://127.0.0.1:0', 'http://127.0.0.1:70000'):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError): event_hooks.local_endpoint(url)
+
+    def test_client_still_rejects_wildcard_as_connection_target(self):
+        with self.assertRaisesRegex(ValueError, 'owned loopback'):
+            grip.Client({'server_url': 'http://0.0.0.0:1234'})
+
+    def test_explicit_adoption_uses_loopback_without_resuming_paused_mission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'service.json'
+            path.write_text(json.dumps({'url': 'http://0.0.0.0:1234', 'password': 'fixture-not-real'}))
+            state = {'session_id': 'actual', 'status': 'paused', 'server_url': 'http://127.0.0.1:5678',
+                     'session_directory': tmp, 'tasks': [{'id': 'done', 'status': 'completed'}]}
+            original_tasks = copy.deepcopy(state['tasks'])
+            def snapshot(client):
+                self.assertEqual(client.state['server_url'], 'http://127.0.0.1:1234')
+                return {'type': 'idle'}, []
+            with patch.object(grip, 'watcher_status', return_value={'alive': False}), \
+                 patch.dict(grip.os.environ, {'OPENCODE_SESSION_ID': 'actual'}), \
+                 patch.object(grip.Client, 'snapshot', snapshot):
+                result = grip.adopt_server(Path(tmp)/'state.json', state, path)
+            self.assertTrue(result['same_session_verified'])
+            self.assertFalse(result['watcher_started'])
+            self.assertEqual(state['status'], 'paused')
+            self.assertEqual(state['tasks'], original_tasks)
+
+    def test_failed_adoption_identity_check_preserves_original_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'service.json'
+            path.write_text(json.dumps({'url': 'http://0.0.0.0:1234', 'password': 'fixture-not-real'}))
+            state = {'session_id': 'actual', 'status': 'paused', 'server_url': 'http://127.0.0.1:5678'}
+            before = copy.deepcopy(state)
+            with patch.object(grip, 'watcher_status', return_value={'alive': False}), \
+                 patch.dict(grip.os.environ, {'OPENCODE_SESSION_ID': 'actual'}), \
+                 patch.object(grip.Client, 'snapshot', side_effect=ValueError('Session identity/directory mismatch')):
+                with self.assertRaisesRegex(ValueError, 'identity/directory'):
+                    grip.adopt_server(Path(tmp)/'state.json', state, path)
+            self.assertEqual(state, before)
+
     def test_authoritative_turn_end_clears_ghost_tool_ids(self):
         self.emit('tool_start', call_id='missed-end')
         event_hooks.record(self.state, session_id='actual', kind='turn_end', at_ms=210)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import base64
+import copy
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -40,14 +41,20 @@ def load(path): return json.loads(Path(path).read_text())
 def atomic(path, value):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+    with tmp.open('w') as stream:
+        stream.write(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(tmp, path)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
 
 @contextmanager
-def locked(path):
+def locked(path, *, blocking=True):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        fcntl.flock(f, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
         yield
 
 def command(args, cwd=HOME, timeout=60, check=True):
@@ -151,7 +158,8 @@ def backup(state, note):
         "workspace", "project_id", "status", "deadline", "compute_target", "tasks", "families",
         "best", "best_by_contract", "active_iteration", "last_iteration", "minimum_method_attempts",
         "mission_id", "objective", "done_when", "context_refs", "plan_revision", "task_events",
-         "operating_mode", "completion", "native_event_health", "last_hook_event", "objective_guard", "objective_history")})
+          "operating_mode", "completion", "native_event_health", "last_hook_event", "objective_guard", "objective_history",
+          "session_id", "session_directory", "standby", "dispatch_intent")})
     git(["add", "--", "code_vault", "projects"])
     if git(["diff", "--cached", "--name-only"]):
         git(["commit", "-m", note[:160]], timeout=120)
@@ -186,43 +194,190 @@ def begin(state, args):
     before = vault(state, args.file)
     record = {"id": identifier, "status": "running", "family": args.family,
               "hypothesis": args.hypothesis, "mirror_hypothesis": args.mirror, "what_changes": args.change,
-              "owned_files": args.file, "before": before, "started_at": stamp(), "estimated_seconds": args.estimate_seconds}
+               "owned_files": args.file, "before": before, "started_at": stamp(), "estimated_seconds": args.estimate_seconds}
+    record['owner'] = finish_owner(state)
     atomic(folder / "ITERATION.json", record)
     commit = backup(state, f"{state['project_id']}: {identifier} before {args.family}")
     state.update(active_iteration=identifier, iteration_count=state.get("iteration_count", 0)+1)
     return {"iteration": identifier, "before_commit": commit, "owned_files": args.file}
 
 def finish(state, args):
+    if not re.fullmatch(r'i[0-9]{4,}', args.iteration): raise ValueError('Invalid iteration identity')
     folder = area(state) / "iterations" / args.iteration
     record = load(folder / "ITERATION.json")
-    if record["status"] != "running" or state.get("active_iteration") != args.iteration:
+    retry = record.get('status') != 'running'
+    if record.get('id') != args.iteration or state.get('active_iteration') not in (None, args.iteration):
         raise ValueError("Iteration lease/status mismatch")
-    evidence = owned(project(state), args.evidence)
-    if not evidence.is_file(): raise ValueError("Actual saved evidence is required")
-    record.update(status=args.verdict, reason=args.reason, finished_at=stamp(),
-                  after=vault(state, record["owned_files"]),
-                  evidence={"path": args.evidence, "sha256": sha(evidence.read_bytes())},
-                  evidence_snapshot=vault(state, [args.evidence]))
-    if args.best:
-        best = owned(project(state), args.best)
-        if args.verdict != "better" or not best.is_file() or not args.metric_contract:
-            raise ValueError("Only a verified better saved artifact may be promoted")
-        key = record["family"] + ":" + args.metric_contract
-        by_contract = state.setdefault("best_by_contract", {})
-        previous = by_contract.get(key)
-        by_contract[key] = {"path": args.best, "sha256": sha(best.read_bytes()), "iteration": args.iteration,
-                            "metric_contract": args.metric_contract, "previous": previous}
-        record["new_best"] = by_contract[key]
-    atomic(folder / "ITERATION.json", record)
-    family = state.setdefault("families", {}).setdefault(args.family or record["family"], {"attempts": []})
-    family["attempts"].append({"id": args.iteration, "verdict": args.verdict, "change": record["what_changes"], "reason": args.reason})
+    if retry and state.get('active_iteration') is None and state.get('last_iteration', {}).get('id') != args.iteration:
+        raise ValueError('Cannot recover an older completion over later work')
+    owner = finish_owner(state)
+    if record.get('owner') is not None and record['owner'] != owner:
+        raise ValueError('Iteration owner changed; investigate before recovery')
+    request = {'verdict': args.verdict, 'reason': args.reason, 'evidence': args.evidence,
+               'family': args.family or record['family'], 'best': args.best,
+               'metric_contract': args.metric_contract}
+    if record['status'] == 'running':
+        if state.get('active_iteration') != args.iteration:
+            raise ValueError('Running iteration has no matching lease')
+        evidence = owned(project(state), args.evidence)
+        if not evidence.is_file(): raise ValueError('Actual saved evidence is required')
+        promotion = None
+        if args.best:
+            best = owned(project(state), args.best)
+            if args.verdict != 'better' or not best.is_file() or not args.metric_contract:
+                raise ValueError('Only a verified better saved artifact may be promoted')
+            key = record['family'] + ':' + args.metric_contract
+            promotion = {'path': args.best, 'sha256': sha(best.read_bytes()), 'iteration': args.iteration,
+                         'metric_contract': args.metric_contract, 'previous': state.get('best_by_contract', {}).get(key)}
+        record.update(status=args.verdict, reason=args.reason, finished_at=stamp(),
+                      after=vault(state, record['owned_files']),
+                      evidence={'path': args.evidence, 'sha256': sha(evidence.read_bytes())},
+                      evidence_snapshot=vault(state, [args.evidence]), finish_owner=owner,
+                      finish_request=request)
+        if promotion: record['new_best'] = promotion
+        atomic(folder / 'ITERATION.json', record)
+    elif record.get('finish_owner') != owner or record.get('finish_request') != request:
+        if not getattr(args, 'recover_legacy', False) or record.get('finish_owner'):
+            raise ValueError('Completion ownership/request mismatch; investigate before recovery')
+        if (record.get('status') != args.verdict or record.get('reason') != args.reason
+                or record.get('evidence', {}).get('path') != args.evidence or args.best or args.family):
+            raise ValueError('Legacy completion request mismatch')
+    verify_finish_evidence(state, record)
+    candidate = copy.deepcopy(state)
+    family = candidate.setdefault('families', {}).setdefault(request['family'], {'attempts': []})
+    attempt = {'id': args.iteration, 'verdict': args.verdict, 'change': record['what_changes'], 'reason': args.reason}
+    existing = [row for row in family['attempts'] if row['id'] == args.iteration]
+    if existing and existing != [attempt]: raise ValueError('Conflicting completion attempt; refusing stale-flag clearing')
+    if not existing: family['attempts'].append(attempt)
     family["minimum_distinct_attempts"] = state.get("minimum_method_attempts", 3)
     family["distinct_attempt_count"] = family.get("prior_distinct_attempts", 0) + len({a["change"] for a in family["attempts"]})
     family["can_park_after_failure"] = family["distinct_attempt_count"] >= family["minimum_distinct_attempts"]
-    record["backup_commit"] = backup(state, f"{state['project_id']}: {args.iteration} {args.verdict} {record['family']}")
-    state["active_iteration"] = None
-    state["last_iteration"] = {"id": args.iteration, "verdict": args.verdict, "reason": args.reason, "commit": record["backup_commit"]}
-    return state["last_iteration"]
+    if record.get('new_best'):
+        promotion = record['new_best']; best = owned(project(state), promotion['path'])
+        if not best.is_file() or sha(best.read_bytes()) != promotion['sha256']:
+            raise ValueError('Saved promoted artifact changed; investigate before recovery')
+        candidate.setdefault('best_by_contract', {})[record['family'] + ':' + promotion['metric_contract']] = promotion
+    candidate['active_iteration'] = None
+    candidate['last_iteration'] = {'id': args.iteration, 'verdict': args.verdict, 'reason': args.reason, 'commit': None}
+    record_hash = sha((folder / 'ITERATION.json').read_bytes())
+    receipt_path = folder / 'FINISH_RECEIPT.json'
+    receipt = load(receipt_path) if receipt_path.exists() else None
+    if receipt and (receipt.get('owner') != owner or receipt.get('record_sha256') != record_hash):
+        raise ValueError('Completion receipt ownership/hash mismatch')
+    # A missing receipt may mean push succeeded just before the process died.
+    # Inspect the bank first; do not repeat a successful backup or the experiment.
+    commit = find_finish_bank(state, folder / 'ITERATION.json', receipt.get('commit') if receipt else None) if (
+        receipt or retry) else None
+    if commit is None:
+        commit = backup(candidate, f"{state['project_id']}: {args.iteration} {args.verdict} {record['family']}")
+    atomic(receipt_path, {'schema': 1, 'owner': owner, 'record_sha256': record_hash, 'commit': commit,
+                          'evidence': record['evidence'], 'verified_at': stamp()})
+    candidate['last_iteration']['commit'] = commit
+    state.clear(); state.update(candidate)
+    return state['last_iteration']
+
+
+def finish_owner(state):
+    return {key: state.get(key) for key in ('project_id', 'workspace', 'session_id', 'session_directory', 'github_repo')} | {
+        'backup_directory': str(storage(state).resolve())}
+
+
+def verify_finish_evidence(state, record):
+    if record.get('status') not in ('better', 'same', 'worse', 'failed') or not record.get('finished_at'):
+        raise ValueError('No saved terminal completion to recover')
+    evidence = record.get('evidence', {})
+    path = owned(project(state), evidence['path'])
+    if not path.is_file() or sha(path.read_bytes()) != evidence['sha256']:
+        raise ValueError('Saved completion evidence missing or changed')
+    for snapshot in (record.get('after'), record.get('evidence_snapshot')):
+        if not isinstance(snapshot, dict) or not snapshot:
+            raise ValueError('Saved completion lacks vaulted evidence')
+        for relative, info in snapshot.items():
+            owned(project(state), relative)
+            if not info.get('exists'): continue
+            identity = info.get('sha256', '')
+            if not re.fullmatch('[0-9a-f]{64}', identity): raise ValueError('Invalid vault identity')
+            payload = storage(state) / 'code_vault' / identity[:2] / identity
+            if not payload.is_file() or sha(payload.read_bytes()) != identity:
+                raise ValueError('Saved completion vault is missing or corrupt')
+    if record['evidence_snapshot'].get(evidence['path'], {}).get('sha256') != evidence['sha256']:
+        raise ValueError('Evidence receipt and vault disagree')
+
+
+def find_finish_bank(state, record_path, expected=None):
+    root = storage(state).resolve()
+    def git(*args): return command(['git', *args], cwd=root)
+    if Path(git('rev-parse', '--show-toplevel')).resolve() != root:
+        raise ValueError('Recovery backup must be its configured Git root')
+    repo = state['github_repo']; remote = git('remote', 'get-url', 'origin')
+    if not remote.endswith((repo, repo + '.git')): raise ValueError('Recovery remote identity mismatch')
+    if command(['gh', 'repo', 'view', repo, '--json', 'isPrivate', '--jq', '.isPrivate'], cwd=root) != 'true':
+        raise ValueError('Recovery bank must remain private')
+    branch = state.get('backup_branch') or git('branch', '--show-current')
+    command(['git', 'check-ref-format', '--branch', branch], cwd=root)
+    rows = git('ls-remote', 'origin', 'refs/heads/' + branch).split()
+    if not rows: return None
+    tip = rows[0]; relative = str(record_path.resolve().relative_to(root))
+    candidates = [expected] if expected else git('log', '-1000', '--format=%H', tip, '--', relative).splitlines()
+    for commit in candidates:
+        if not re.fullmatch('[0-9a-f]{40,64}', commit): raise ValueError('Invalid bank commit receipt')
+        ancestry = subprocess.run(['git', 'merge-base', '--is-ancestor', commit, tip], cwd=root, capture_output=True)
+        if ancestry.returncode: continue
+        payload = subprocess.check_output(['git', 'show', commit + ':' + relative], cwd=root, stderr=subprocess.PIPE)
+        if sha(payload) != sha(record_path.read_bytes()): continue
+        bank = json.loads(git('show', commit + ':projects/' + state['project_id'] + '/MISSION.json'))
+        if any(bank.get(key) != state.get(key) for key in ('workspace', 'project_id')):
+            raise ValueError('Banked completion belongs to another project')
+        return commit
+    if expected: raise ValueError('Saved completion commit not verified on the private remote')
+    return None
+
+
+def recover_finish(path, state, args):
+    """Explicit evidence-backed lease repair; never resumes a task or mission."""
+    mission.revision(state, args.revision)
+    if args.session_id != state.get('session_id') or not args.note.strip():
+        raise ValueError('Recovery needs the explicit bound session and authority note')
+    if not re.fullmatch(r'i[0-9]{4,}', args.iteration): raise ValueError('Invalid iteration identity')
+    folder = area(state) / 'iterations' / args.iteration
+    record_path = folder / 'ITERATION.json'
+    if sha(record_path.read_bytes()) != args.record_sha256:
+        raise ValueError('Recovery record changed; investigate again')
+    # Local exact state/record backup precedes contact or reconciliation. It lives
+    # only in the explicitly selected private bank, never the software checkout.
+    snapshot = {'schema': 1, 'state': copy.deepcopy(state), 'record': load(record_path),
+                'record_sha256': args.record_sha256, 'authority_note': args.note}
+    clean_payload('recovery snapshot', json.dumps(snapshot).encode())
+    recovery_id = sha(json.dumps(snapshot, sort_keys=True).encode())
+    atomic(area(state) / 'recoveries' / (recovery_id + '.json'), snapshot)
+    status, _ = Client(state).snapshot()  # verifies the original session/directory
+    if status.get('type') != 'idle':
+        raise ValueError('Bound session is busy; preserve live work, investigate before recovery')
+    record = load(record_path)
+    verify_finish_evidence(state, record)
+    if state.get('active_iteration') not in (None, args.iteration):
+        raise ValueError('Another iteration owns the lease')
+    # Bank the before-state before modifying flags. A failed backup leaves the
+    # caller state and lease untouched and the local investigation recoverable.
+    already = state.get('active_iteration') is None and state.get('last_iteration', {}).get('id') == args.iteration
+    if already and not (folder / 'FINISH_RECEIPT.json').is_file():
+        raise ValueError('Cleared lease lacks a recovery receipt; investigate before acting')
+    before_commit = (state['last_iteration']['commit'] if already else
+                     backup(state, 'Bank before explicit completion recovery ' + args.iteration))
+    namespace = argparse.Namespace(iteration=args.iteration, verdict=record['status'], reason=record['reason'],
+        evidence=record['evidence']['path'], best=None, metric_contract=None, family=None, recover_legacy=True)
+    if record.get('finish_request'):
+        request = record['finish_request']
+        namespace.best, namespace.metric_contract, namespace.family = request['best'], request['metric_contract'], request['family']
+    candidate = copy.deepcopy(state)
+    result = finish(candidate, namespace)
+    receipt = {'recovered': True, 'already_reconciled': already, 'iteration': args.iteration, 'record_sha256': args.record_sha256,
+        'before_commit': before_commit, 'completion_commit': result['commit'], 'session_id': state['session_id'],
+        'status_preserved': candidate['status'] == state['status'], 'tasks_preserved': candidate.get('tasks') == state.get('tasks'),
+        'work_repeated': False, 'authority_note': args.note, 'at': stamp()}
+    atomic(area(state) / 'recoveries' / (recovery_id + '-receipt.json'), receipt)
+    state.clear(); state.update(candidate)
+    return receipt
 
 def rollback(state, identifier):
     folder = area(state) / "iterations" / identifier
@@ -274,9 +429,7 @@ class Client:
     """Existing OpenCode HTTP/session API; localhost only, no new inference bus."""
     def __init__(self, state):
         self.state = state
-        parsed = urllib.parse.urlsplit(state["server_url"])
-        if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
-            raise ValueError("Only an owned loopback OpenCode server is supported")
+        event_hooks.local_endpoint(state["server_url"])
     def request(self, path, body=None):
         if self.state.get('server_api') == 'v2':
             return v2_control.request(self,path,body)
@@ -318,6 +471,11 @@ def prompt(state):
         + str(mission.revision(state)) + " may already be stale. Completed tasks stay completed; never restart the project or recreate the checklist. "
         "Inspect/resume an in_progress or waiting task and its existing job before launching anything. If completion was interrupted, "
         "inspect saved evidence and reconcile rather than repeating work. Mark verified tasks completed with evidence BEFORE selecting another. "
+        "Investigate before acting: use the General reasoning, Build and engineering, and Creation Mode strategy specifications in "
+        + str(HOME/'reasoning_modes.json') + ". Trace the cause, test a falsifier, preserve evidence, and clear only proven-stale flags. "
+        "Interrupted finish uses the idempotent finish/recover-finish path with ownership, evidence and private-bank proof; never replay completed work. "
+        "A standby may restart only a proven-dead primary through the same dispatch locks; live hangs or unknown dispatch outcomes require investigation. "
+        "These are reasoning procedures, not learned abilities or definitions of Modes2/3. Never override human Stop/Pause or a genuine blocker. "
         "Use task --revision CURRENT to reject stale edits. Reopening needs explicit --reopen and a concrete reason, never just this wake. "
         "If task work is done, review the FULL objective through goal-review before closing; blocked is not done. Do not manufacture experiments. "
         "Mode1 status: " + json.dumps(state.get("completion", {}), ensure_ascii=False) + ". "
@@ -413,6 +571,9 @@ def tick(state, dry=False):
     blocked = event_hooks.suppress(state, messages)
     if blocked:
         return {"at": stamp(), "stage": "suppressed", "reason": blocked}
+    if state.get('dispatch_intent', {}).get('status') == 'pending':
+        return {'at': stamp(), 'stage': 'needs_investigation',
+                'reason': 'Previous dispatch outcome is unverified; inspect the bound server inbox before replay. No flags cleared.'}
     latest = max(messages, key=lambda m: m["info"]["time"]["created"]) if messages else None
     heartbeat = {"at": stamp(), "session": state["session_id"], "server_status": status, "stage": "suppressed"}
     if latest:
@@ -476,6 +637,12 @@ def tick(state, dry=False):
     heartbeat["stage"] = "would_dispatch" if dry else "api_accepted"
     if not dry:
         state["dispatched_at_ms"] = int(time.time()*1000)
+        state['dispatch_intent'] = {'status': 'pending', 'session_id': state['session_id'],
+                                    'fingerprint': fingerprint, 'at': stamp()}
+        # Persist intent under the caller's shared state lock before contacting
+        # the server. A crash after acceptance cannot invite blind replay.
+        state_file = Path(state['state_path']) if state.get('state_path') else None
+        if state_file and state_file.is_file(): atomic(state_file, state)
         accepted = client.request("/session/"+state["session_id"]+"/prompt_async", {
             "agent": "build", "model": {"providerID": state["provider_id"], "modelID": state["model_id"]},
             "parts": [{"type": "text", "text": prompt(state)}]})
@@ -483,6 +650,8 @@ def tick(state, dry=False):
         state["wake_count"] = state.get("wake_count", 0)+1
         state["dispatch_active"] = f"wake-{state['wake_count']}"
         if isinstance(accepted,dict): state['dispatch_receipt'] = {'id':accepted.get('id')}
+        state['dispatch_intent']['status'] = 'accepted'
+        if state_file and state_file.is_file(): atomic(state_file, state)
         atomic(area(state)/"LAST_WAKE.json", {"at":stamp(),"stage":"api_accepted",
                "wake":state["dispatch_active"],"parent_final_message":info["id"]})
         try:
@@ -539,18 +708,26 @@ def proc_start(pid):
 
 def watcher_status(path):
     path = Path(path).resolve()
+    record = {'state_path': str(path)}
     try:
         record = load(path.with_suffix(".watcher.json"))
+        if not isinstance(record, dict): raise ValueError('Invalid watcher receipt')
         start = proc_start(record["pid"])
         args = Path(f"/proc/{int(record['pid'])}/cmdline").read_bytes().split(b"\0")
         alive = (record.get("state_path") == str(path) and start is not None and start == record.get("start_ticks") and
                  str(path).encode() in args and b"watch" in args and str(HOME / "grip.py").encode() in args)
         return {**record, "alive": bool(alive)}
     except (OSError, ValueError, KeyError, TypeError):
-        return {"alive": False, "state_path": str(path)}
+        return {**record, 'alive': False} if isinstance(record, dict) else {'alive': False, 'state_path': str(path)}
 
 
 def start_watch(path, timeout=10):
+    path = Path(path).resolve()
+    with locked(path.with_suffix('.start.lock')):
+        return _start_watch(path, timeout)
+
+
+def _start_watch(path, timeout=10):
     """One named tmux watcher, verified by its PID/start-time/argv receipt."""
     path = Path(path).resolve()
     observed = watcher_status(path)
@@ -569,6 +746,77 @@ def start_watch(path, timeout=10):
             return {**observed, "reused": False, "tmux_session": name}
         time.sleep(0.05)  # bounded readiness condition, not a fixed startup delay
     raise RuntimeError("Watcher did not produce a live identity receipt; activation is not confirmed running")
+
+
+def standby_status(path):
+    path = Path(path).resolve()
+    try:
+        record = load(path.with_suffix('.standby.json'))
+        args = Path('/proc/' + str(int(record['pid'])) + '/cmdline').read_bytes().split(b'\0')
+        alive = (record.get('state_path') == str(path) and proc_start(record['pid']) == record.get('start_ticks')
+                 and proc_start(record['pid']) is not None and str(path).encode() in args
+                 and b'standby' in args and str(HOME / 'grip.py').encode() in args)
+        return {**record, 'alive': bool(alive)}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'alive': False, 'state_path': str(path)}
+
+
+def start_standby(path, timeout=10):
+    path = Path(path).resolve()
+    with locked(path.with_suffix('.standby.start.lock')):
+        observed = standby_status(path)
+        if observed['alive']: return {**observed, 'reused': True}
+        name = 'grip-standby-' + sha(str(path).encode())[:12]
+        if subprocess.run(['tmux', 'has-session', '-t', '=' + name], capture_output=True).returncode == 0:
+            raise ValueError('Standby name has no matching live receipt; investigate ownership')
+        line = 'exec ' + shlex.join([sys.executable, str(HOME / 'grip.py'), '--state', str(path), 'standby'])
+        command(['tmux', 'new-session', '-d', '-s', name, '-c', str(HOME), line])
+        until = time.monotonic() + timeout
+        while time.monotonic() < until:
+            observed = standby_status(path)
+            if observed['alive']: return {**observed, 'reused': False, 'tmux_session': name}
+            time.sleep(0.05)
+        raise RuntimeError('Standby did not produce a verified process receipt')
+
+
+def standby_step(path):
+    """No dispatch here. Only restart a proven-dead owner via the single gate."""
+    path = Path(path).resolve()
+    # State is atomically published. Passive observation must not wait behind a
+    # stuck primary holding the dispatch lock; it must never bypass that lock
+    # when taking action, either.
+    state = load(path)
+    config = state.get('standby', {})
+    if not config.get('enabled'): return {'stage': 'disabled', 'at': stamp()}
+    if config.get('owner') != finish_owner(state):
+        raise ValueError('Standby binding changed; investigate before acting')
+    primary = watcher_status(path)
+    if primary['alive']:
+        heartbeat = state.get('last_heartbeat', {}).get('at')
+        try: age = time.time() - datetime.fromisoformat(heartbeat).timestamp()
+        except (TypeError, ValueError): age = None
+        unhealthy = state.get('consecutive_errors', 0) >= 3 or (age is not None and age > max(90, 3 * state.get('poll_seconds', 30)))
+        return {'stage': 'needs_investigation' if unhealthy else 'watching', 'primary_pid': primary['pid'],
+                'reason': 'Alive primary is never killed or bypassed; diagnose the actual cause' if unhealthy else 'primary identity verified', 'at': stamp()}
+    if not primary.get('pid') or primary.get('state_path') != str(path):
+        return {'stage': 'needs_investigation', 'reason': 'Missing ownership receipt; no automatic takeover', 'at': stamp()}
+    with path.with_suffix('.watch.lock').open('a+') as lease:
+        try: fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {'stage': 'needs_investigation', 'reason': 'Primary lease still held; never start competing dispatch', 'at': stamp()}
+    # Read-only identity proof and fresh state; no task flag is cleared here.
+    try:
+        with locked(path.with_suffix('.lock'), blocking=False):
+            current = load(path)
+            if not current.get('standby', {}).get('enabled'): return {'stage': 'disabled', 'at': stamp()}
+            if current.get('standby', {}).get('owner') != finish_owner(current):
+                raise ValueError('Standby binding changed during recovery')
+            Client(current).snapshot()
+    except BlockingIOError:
+        return {'stage': 'needs_investigation', 'reason': 'Shared dispatch lock held; no competing takeover', 'at': stamp()}
+    restarted = start_watch(path)  # serialized startup + primary lease + state dispatch lock
+    return {'stage': 'primary_recovered', 'primary_pid': restarted['pid'], 'reused': restarted.get('reused', False),
+            'at': stamp(), 'mission_flags_unchanged': True}
 
 
 def install_skill(expected=None, target=None):
@@ -611,7 +859,8 @@ def adopt_server(path, state, service_file):
         raise ValueError('Server adoption must run from this exact real tool-context session')
     service_path = Path(service_file).resolve()
     service = load(service_path)
-    candidate = dict(state, server_url=service['url'], server_service_file=str(service_path), server_api='v2')
+    candidate = dict(state, server_url=event_hooks.local_endpoint(service['url'], listener=True),
+                     server_service_file=str(service_path), server_api='v2')
     Client(candidate).snapshot()  # same persisted ID/directory on the actual service
     state.setdefault('server_history', []).append({'url': state['server_url'], 'at': stamp(),
         'reason': 'Explicit current-tool-session adoption; old service retained, never stopped'})
@@ -623,7 +872,8 @@ def adopt_server(path, state, service_file):
 def main():
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--state", type=Path, required=True)
     sub = parser.add_subparsers(dest="action", required=True)
-    for action in ("status", "pause", "resume", "serve", "watch"): sub.add_parser(action)
+    for action in ("status", "pause", "resume", "serve", "watch", "standby", "unprotect"): sub.add_parser(action)
+    p=sub.add_parser('protect'); p.add_argument('--interval-seconds', type=float, default=5)
     p=sub.add_parser("install-skill"); p.add_argument("--replace-sha256", help="reviewed current installed skill digest")
     p.add_argument("--target", type=Path, help="skill destination; otherwise GRIP_SKILL_PATH or the current user's .agents directory")
     p=sub.add_parser("activate", help="merge a current-chat mission and start/reuse its single poller")
@@ -647,6 +897,9 @@ def main():
     p.add_argument("--verdict", choices=("better","same","worse","failed"), required=True)
     p.add_argument("--reason", required=True); p.add_argument("--evidence", required=True); p.add_argument("--best")
     p.add_argument("--metric-contract", help="Required for promoting a best artifact; separates incompatible tasks/rulers")
+    p=sub.add_parser('recover-finish'); p.add_argument('--iteration', required=True)
+    p.add_argument('--session-id', required=True); p.add_argument('--record-sha256', required=True)
+    p.add_argument('--note', required=True); p.add_argument('--revision', type=int, required=True)
     p=sub.add_parser("task"); p.add_argument("--id",required=True); p.add_argument("--status",choices=mission.STATUSES,required=True); p.add_argument("--note",required=True)
     p.add_argument("--revision", type=int); p.add_argument("--reopen", action="store_true")
     p.add_argument("--evidence", action="append", help="relative saved evidence; required for durable mission completion")
@@ -671,6 +924,27 @@ def main():
     if args.action == "install-skill":
         print(json.dumps(install_skill(args.replace_sha256, args.target))); return
     if args.action == "serve": raise SystemExit(serve(load(path)))
+    if args.action == 'standby':
+        stop = False
+        def stop_standby(*_):
+            nonlocal stop; stop = True
+        signal.signal(signal.SIGTERM, stop_standby); signal.signal(signal.SIGINT, stop_standby)
+        with path.with_suffix('.standby.lock').open('a+') as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            atomic(path.with_suffix('.standby.json'), {'pid': os.getpid(), 'start_ticks': proc_start(os.getpid()),
+                'state_path': str(path), 'started_at': stamp()})
+            while not stop:
+                try: result = standby_step(path)
+                except Exception as exc:
+                    result = {'stage': 'needs_investigation', 'error_type': type(exc).__name__, 'at': stamp()}
+                atomic(path.with_suffix('.standby.health.json'), result)
+                if result['stage'] == 'disabled': break
+                interval = load(path).get('standby', {}).get('interval_seconds', 5)
+                # A bounded condition wait; SIGTERM interrupts the loop promptly.
+                until = time.monotonic() + interval
+                while not stop and time.monotonic() < until:
+                    select.select([], [], [], max(0, min(0.2, until - time.monotonic())))
+        return
     if args.action == "activate":
         with locked(path.with_suffix(".lock")):
             if path.exists():
@@ -746,7 +1020,17 @@ def main():
         if args.action == "status":
             mission.refresh(state)
             result={**state, "watcher": watcher_status(path), "next_task": mission.next_task(state),
-                    "objective_signature":objective_watch.signature(state)}
+                    "objective_signature":objective_watch.signature(state), 'standby_process': standby_status(path),
+                    'standby_health': load(path.with_suffix('.standby.health.json')) if path.with_suffix('.standby.health.json').exists() else None}
+        elif args.action == 'protect':
+            if not 0.05 <= args.interval_seconds <= 3600: raise ValueError('Standby interval outside bounds')
+            if not watcher_status(path)['alive']: raise ValueError('Verify the existing primary before enabling standby')
+            Client(state).snapshot()
+            state['standby'] = {'enabled': True, 'owner': finish_owner(state), 'interval_seconds': args.interval_seconds}
+            result = {'enabled': True, 'no_dispatch_authority_added': True}
+        elif args.action == 'unprotect':
+            state.setdefault('standby', {})['enabled'] = False
+            result = {'enabled': False, 'primary_and_mission_unchanged': True}
         elif args.action == "bind-hooks": result=bind_hooks(path,state)
         elif args.action == 'goal':
             mission.revision(state,args.revision)
@@ -811,9 +1095,11 @@ def main():
         elif args.action == "checkpoint": result=checkpoint(state,args.note)
         elif args.action == "begin": result=begin(state,args)
         elif args.action == "finish": result=finish(state,args)
+        elif args.action == 'recover-finish': result=recover_finish(path,state,args)
         elif args.action == "rollback": result=rollback(state,args.iteration)
         else: result=tick(state,args.dry_run)
         atomic(path,state)
+    if args.action == 'protect': result['standby_process'] = start_standby(path)
     if args.action == "event": event_hooks.notify(path)
     print(json.dumps(result,indent=2))
 

@@ -35,8 +35,8 @@
 - General reasoning, Build and engineering, and Creation Mode are investigation
   procedures, not learned capabilities. Modes Two and Three remain undefined.
 - This bounded controller repair is not completion of the underlying project or
-  proof of permanent unattended reliability. Source changes are local pending
-  publication; private recovery receipts are banked separately.
+  proof of permanent unattended reliability. The repair source and requested
+  README/banner are published on main; private recovery receipts remain separate.
 
 ## Local service-restart address repair
 

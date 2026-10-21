@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+runtime/
+.env
+*.secret
+evals/workspace/
+# Personal missions, immutable source archives and deployment evidence stay local.
+/code_vault/
+/projects/
+/verification/
+/local/

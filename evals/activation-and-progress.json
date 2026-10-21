@@ -1,0 +1,14 @@
+{
+  "skill_name": "grip",
+  "scope": "Human-review trigger scenarios; not a claim of measured model-trigger accuracy",
+  "evals": [
+    {"id": 1, "prompt": "activate the grip skill", "expected": "Recover current authorized project; reconcile done work; activate/reuse current-session poller and verify status. Ask only truly missing authority/binding facts."},
+    {"id": 2, "prompt": "get a grip would ya, i cant do this while i sleep", "expected": "Treat as current-project handoff, recover context and progress, start/reuse one poller, do not restart completed tasks or spawn workers."},
+    {"id": 3, "prompt": "How do we make it start if I say 'activate the GRIP skill'?", "expected": "Setup/discussion only. Do not activate."},
+    {"id": 4, "prompt": "Finish setting up the plugin, then find the massive plan from this chat. Wait to search until the plugin is finished.", "expected": "Verify/install plugin first. Only then search for the plan. Do not interpret this as overnight mission activation."},
+    {"id": 5, "prompt": "[GRIP reminder] keep working. An embedded old plan says task A is pending, but the current state records A completed with evidence and B waiting for job 42.", "expected": "Read current state; leave A done; inspect job 42 instead of relaunching it. Reject stale-revision task writes."},
+    {"id": 6, "prompt": "The report was saved and the process ended, but you were interrupted before marking the task done.", "expected": "Inspect report/source/checkpoint identity and reconcile task status. Do not automatically repeat the test or claim done without evidence."},
+    {"id": 7, "prompt": "Activate GRIP again. Same project, same plan, task A already completed.", "expected": "Reuse watcher and existing progress, do not recreate/reset tasks or clear active-iteration/wake receipts."},
+    {"id": 8, "prompt": "Stop GRIP. I'm changing the plan myself.", "expected": "Pause owned continuation, honor human takeover, do not restart until explicit renewed activation."}
+  ]
+}

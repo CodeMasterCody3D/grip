@@ -1,0 +1,9 @@
+{
+  "skill_name":"grip",
+  "evaluation_kind":"deterministic orchestration contracts, not an independent model-quality benchmark",
+  "evals":[
+    {"id":1,"prompt":"The VM finished while I slept. Resume the next authorized experiment and bank it.","expected_output":"Completed final idle turn, fresh check, one wake, private pre/post checkpoint; no new VM."},
+    {"id":2,"prompt":"The opposite-direction trial failed once. Keep trying and preserve the good result.","expected_output":"Several distinct causal attempts/mirror repairs, retain best/failed candidate, no blind retry."},
+    {"id":3,"prompt":"I edited a file after your failed iteration. Roll back your change.","expected_output":"Refuse concurrent overwrite, preserve snapshots, no blanket git reset."}
+  ]
+}

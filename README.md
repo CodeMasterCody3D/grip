@@ -81,6 +81,50 @@ You'll need:
 
 The optional JavaScript connection and its tests also need **Node.js 18 or newer**. Windows and Mac support is not available yet.
 
+### Install once
+
+Open your AI in the project you want it to work on, then paste:
+
+```text
+Install GRIP from https://github.com/CodeMasterCody3D/grip.
+
+Read the README and skills/grip/SKILL.md. Check that my setup
+is supported, then install the skill for my current user.
+
+Help me connect GRIP to this project and our existing OpenCode
+session. Use the goal and limits we've already agreed on.
+Ask only for missing information you need.
+
+Install and configure it only. Do not activate GRIP or start
+the poller yet.
+```
+
+Your AI needs access to your project and permission to run local commands. Installing GRIP makes it available for when you need it.
+
+### Get a GRIP when you want it
+
+When you're ready for GRIP to keep the current job moving, tell your AI:
+
+> Run the GRIP skill.
+
+Or simply:
+
+> Get a grip.
+
+That's the handoff: your AI should read the skill, prepare the current job, and run GRIP's activation command to start or reuse its background watcher—the poller.
+
+Reading the skill alone doesn't start GRIP. Your AI should check that the poller is running and tell you if anything prevented it from starting.
+
+You choose when to use it. Installing the skill or talking about how it works doesn't start the poller.
+
+### Pause it when you need to
+
+Tell your AI to pause GRIP when you want it to stop continuing the work. Tell it to resume GRIP when you're ready to continue. Ask it to check GRIP's status whenever you want to know whether it's running.
+
+GRIP also stops asking the AI to continue once the agreed goal has passed its required final review.
+
+### Prefer manual setup?
+
 From your downloaded GRIP folder, install the AI's instructions:
 
 ```bash
@@ -90,9 +134,7 @@ python3 "$GRIP_ROOT/grip.py" --state "$GRIP_ROOT/runtime/unused.json" install-sk
 
 This installs the instructions. It doesn't start the work.
 
-Next, follow the [setup guide](OPERATIONS.md#portable-setup) to connect your existing chat, choose your private backup folder, and write down the job and its limits.
-
-The guide includes the commands to start, pause, resume, and check GRIP.
+Follow the [setup guide](OPERATIONS.md#portable-setup) to connect your existing chat, choose your private backup folder, and write down the job and its limits. The [operations reference](OPERATIONS.md) includes the commands to activate, pause, resume, and check GRIP.
 
 ## Want the details?
 

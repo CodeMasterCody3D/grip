@@ -1,3 +1,5 @@
+![GRIP — Tell your AI to get a GRIP](GRIP.png)
+
 # GRIP
 
 ## Tell your AI to get a GRIP.

@@ -1,5 +1,10 @@
 ![GRIP — Tell your AI to get a GRIP](GRIP.png)
 
+> **“Tell your AI to get a GRIP.”**<br>
+> *AI immediately grows an extra finger.* 😂
+>
+> **“Extra GRIP. Obviously.”**
+
 # GRIP
 
 ## Tell your AI to get a GRIP.

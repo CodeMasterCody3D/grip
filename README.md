@@ -1,4 +1,4 @@
-![GRIP — Tell your AI to get a GRIP](GRIP.png)
+![GRIP — Tell your AI to get a GRIP](GRIP-blue.webp)
 
 > **“Tell your AI to get a GRIP.”**<br>
 > *AI immediately grows an extra finger.* 😂

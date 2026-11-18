@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "grip",
+  "version": "0.2.1",
+  "description": "Keep authorized Codex work moving with bounded missions or optional infinite continuation.",
+  "author": {"name": "CodeMasterCody3D"},
+  "repository": "https://github.com/CodeMasterCody3D/grip",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "GRIP",
+        "shortDescription": "Keep hold of the goal",
+        "longDescription": "Native Codex hooks continue explicitly activated chats. Choose bounded missions or infinite mode with no finish condition: prefer real grey composer text, otherwise review unfinished work, repair failed code on the same task, and continue existing plans. Desktop prediction access requires the verified local debugger. Stop and Pause remain available.",
+        "developerName": "CodeMasterCody3D",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": "Configure GRIP for this Codex chat without activating it."
+      }
+    }
+  }
+}

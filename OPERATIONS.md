@@ -96,14 +96,44 @@ before restarting; this release does not rewrite live profiles or restart watche
 ## Cycle
 
 1. Read current authority, best checkpoint, queue and evidence.
-2. Record a falsifiable primary hypothesis and an opposite/mirror hypothesis.
-3. Bank the working source **before** editing.
-4. Run one bounded packet with a positive and a breaking control.
-5. Save weights/results, explain the change and check its actual outputs.
-6. Bank the iteration, then keep or roll back only its owned files.
-7. Try at least three distinct justified variants before parking a method;
-   rotate methods and revisit with new evidence. Infrastructure errors and user
-   stops are not scientific attempts. Never blindly repeat a deterministic error.
+2. Resume an existing job/iteration. Approved execution needs no new experiment.
+3. Bank working source **before** new edits. For routine `begin` calls, describe
+   the task as the hypothesis and mark the mirror not applicable; these required
+   CLI fields do not require an alternative experiment.
+4. Test only to inform a decision or satisfy required correctness/scheduled quality
+   checks. Use controls and alternative hypotheses for actual investigations.
+5. Reuse compatible evidence. Review changed dependencies and revalidate affected
+   claims only; reconcile controller source-bound reviews without inventing proof.
+6. Bank small iteration evidence; keep or roll back only owned files. Model saves,
+   remote backups and bounded retention follow the workload's approved cadence,
+   not each document or wake. Preserve recovery state and authorized cleanup limits.
+7. Record actual progress once, with evidence references and next action. Summarize
+   it in Board/handoff. Compare useful work with overhead using existing logs.
+8. No default minimum variants: continue investigating only while results change
+   a decision. When housekeeping dominates, return to useful work or report the
+   concrete blocker. Infrastructure errors and user stops are not scientific trials.
+
+These are agent workflow rules, not changes to trainer checkpoint code or existing
+controller evidence gates. A real storage/backup refusal requires a narrow repair,
+not an instruction to bypass it. Whole-objective review remains required at closure;
+compatible completed audit/challenge evidence is reused rather than regenerated
+after every segment. Source installation and watcher restarts are separate actions.
+
+### Next action and quiet waiting
+
+State the next action briefly and continue it within current authorization. Waiting
+for training, scripts, tests or uploads is not a reason to repeat the mission report,
+start another copy, or invent work. Use the existing job/watcher and meaningful check
+cadence. When the job finishes, read results and take the next authorized action.
+
+Unchanged waits are silent when supported, otherwise one short line. Meaningful
+updates use at most three short lines: result/change, real blocker if any, next
+action. Expand for requested detail or a consequential decision. Review the eleven
+questions internally, not as a recurring chat template. Do not append identical
+status entries. The wake prompt carries a bounded unfinished-task preview and
+objective/phase summary, not growing completed-task histories or evidence blobs;
+read the authoritative state for full notes and dependencies. No mission state,
+dispatch timing or pause behavior is changed by this message-size policy.
 
 ## Commands
 

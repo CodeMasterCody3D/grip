@@ -20,7 +20,7 @@ class PortablePaths(unittest.TestCase):
                'compute_target':'selected compute'}
         with patch.object(grip,'HOME',Path('relocated checkout')):
             text=grip.prompt(state)
-        command=text.split('Controller CLI: ',1)[1].split('. Latest explicit policy:',1)[0]
+        command=text.split('Controller CLI: ',1)[1].split('. Task-first policy:',1)[0]
         self.assertEqual(shlex.split(command),[sys.executable,'relocated checkout/grip.py',
                                               '--state','selected state/state.json'])
 

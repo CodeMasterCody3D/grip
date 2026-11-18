@@ -1,0 +1,4 @@
+interface:
+  display_name: "grip-infinite"
+  short_description: "Activate infinite GRIP in this chat"
+  default_prompt: "Use $grip-infinite to activate GRIP infinite mode for this chat and continue its authorized work."

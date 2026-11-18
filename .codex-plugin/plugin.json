@@ -1,0 +1,15 @@
+{
+  "name": "grip",
+  "version": "0.2.1",
+  "description": "Keep authorized Codex work moving with bounded missions or optional infinite continuation.",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "GRIP",
+    "shortDescription": "Keep hold of the goal",
+    "developerName": "CodeMasterCody3D",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Configure GRIP for this Codex chat without activating it."
+  }
+}

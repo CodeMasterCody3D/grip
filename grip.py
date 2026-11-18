@@ -249,7 +249,7 @@ def finish(state, args):
     existing = [row for row in family['attempts'] if row['id'] == args.iteration]
     if existing and existing != [attempt]: raise ValueError('Conflicting completion attempt; refusing stale-flag clearing')
     if not existing: family['attempts'].append(attempt)
-    family["minimum_distinct_attempts"] = state.get("minimum_method_attempts", 3)
+    family["minimum_distinct_attempts"] = state.get("minimum_method_attempts", 0)
     family["distinct_attempt_count"] = family.get("prior_distinct_attempts", 0) + len({a["change"] for a in family["attempts"]})
     family["can_park_after_failure"] = family["distinct_attempt_count"] >= family["minimum_distinct_attempts"]
     if record.get('new_best'):
@@ -453,15 +453,35 @@ class Client:
         return status, messages
 
 def prompt(state):
-    tasks = [{key: t.get(key) for key in ("id", "content", "status", "done_when", "depends_on", "note", "evidence")}
-             for t in state["tasks"]]
+    # This is a bounded preview, not another copy of the durable mission history.
+    counts = {}
+    for task in state["tasks"]:
+        status = task.get("status", "pending")
+        counts[status] = counts.get(status, 0) + 1
+    priority = {name: i for i, name in enumerate(("in_progress", "waiting", "pending", "blocked", "parked"))}
+    unfinished = sorted((t for t in state["tasks"] if t.get("status") != "completed"),
+                        key=lambda t: priority.get(t.get("status"), len(priority)))
+    tasks = [{key: str(t.get(key, ""))[:240] for key in ("id", "content", "status")}
+             for t in unfinished[:6]]
     skill = state.get("skill_path", str(installed_skill_path()))
     return (MARKER + "\nContinue the current project and apply the GRIP skill. Continue the explicitly authorized GRIP mission in " + state["workspace"] + ". "
         "Read " + skill + ", project AGENTS.md, PROJECT.md, current records and " + state["state_path"] + ". "
         "Controller CLI: " + shlex.join([sys.executable, str(HOME/"grip.py"), "--state", state["state_path"]]) + ". "
-        "Latest explicit policy:several distinct justified attempts per method (minimum" + str(state.get("minimum_method_attempts",3)) + "), mirror/opposite hypotheses, preserve best, "
-        "bank every iteration privately; rotate/revisit rather than declare an idea dead after one failure. "
-        "Use GRIP begin before edits and finish/rollback after evidence. Do not just update a task list:execute one useful bounded packet. "
+        "Task-first policy: resume useful approved work; a wake is not a new experiment or milestone. "
+        "Routine execution needs no mirror experiment or minimum variants; investigate only an unresolved decision or actual failure. "
+        "Legacy minimum-attempt settings do not require extra trials. Preserve best and reuse compatible evidence. "
+        "Reuse an active iteration; use GRIP begin before new edits and finish/rollback after evidence, not once per wake. "
+        "For routine execution, describe the approved task in hypothesis and mark mirror not applicable; do not invent experiments to fill CLI fields. "
+        "Tests must change a decision or satisfy a required correctness/scheduled quality check. Revalidate only affected claims when dependencies change. "
+        "Local checkpoints and remote backups follow the workload's approved cadence and bounded retention, not iteration boundaries. "
+        "Small private source/evidence banking does not require a full model upload or restoration. Do not bypass real storage/recovery gates. "
+        "Record progress once and reference it; report actual delivered work and productive versus overhead time from existing logs. "
+        "If bookkeeping dominates, return to the authorized task or report its concrete blocker; do not create another framework. "
+        "State the next concrete action briefly and perform it within authorization; do not stop for routine reapproval. "
+        "While training/scripts/tests/uploads run, retain the job identity and next meaningful check; use the existing wait cadence, no busy-polling or duplicate job. "
+        "On completion read results and continue the next authorized action. Unchanged waits: stay silent when supported, otherwise one short line. "
+        "Changed status: at most three short lines (result, real blocker if any, next action); expand only for requested detail or a consequential decision. "
+        "Do not repeat history, task lists or eleven-question answers in chat or append unchanged status records. "
         "No new VMs. Workers require explicit current user authorization and the tmux workflow. Use the authorized compute/tools: " + state["compute_target"] + ". "
         "Scheduling window: " + (state.get("deadline") or "until user stops or pauses; verify runtime availability/lifetime before compute") + ". Honor newer human stop/pause immediately. "
         "Keep source/data/format and failed arms; judge actual task outputs and compatible metrics. Recover any active iteration first. "
@@ -472,18 +492,19 @@ def prompt(state):
         "Inspect/resume an in_progress or waiting task and its existing job before launching anything. If completion was interrupted, "
         "inspect saved evidence and reconcile rather than repeating work. Mark verified tasks completed with evidence BEFORE selecting another. "
         "Investigate before acting: use the General reasoning, Build and engineering, and Creation Mode strategy specifications in "
-        + str(HOME/'reasoning_modes.json') + ". Trace the cause, test a falsifier, preserve evidence, and clear only proven-stale flags. "
+        + str(HOME/'reasoning_modes.json') + " only for an unresolved question or failure. Trace that cause, test a decision-relevant falsifier, preserve evidence, and clear only proven-stale flags. "
         "Interrupted finish uses the idempotent finish/recover-finish path with ownership, evidence and private-bank proof; never replay completed work. "
         "A standby may restart only a proven-dead primary through the same dispatch locks; live hangs or unknown dispatch outcomes require investigation. "
         "These are reasoning procedures, not learned abilities or definitions of Modes2/3. Never override human Stop/Pause or a genuine blocker. "
         "Use task --revision CURRENT to reject stale edits. Reopening needs explicit --reopen and a concrete reason, never just this wake. "
         "If task work is done, review the FULL objective through goal-review before closing; blocked is not done. Do not manufacture experiments. "
-        "Mode1 status: " + json.dumps(state.get("completion", {}), ensure_ascii=False) + ". "
+        "Mode1 phase: " + str(state.get("completion", {}).get("phase", "not configured")) + ". "
         "If Mode1 is selected, empty task lists are NOT project completion: recover missing specs, add necessary in-scope gap tasks, "
-        "verify requirements, audit the whole spec, then challenge provisional green through real end-to-end use and counterexamples. "
+        "verify requirements and review whole-spec audit/challenge evidence at closure; reuse compatible saved results and test only missing or affected claims. "
         "Never invent Modes2/3 or enlarge permissions. Report programmed versus trained versus integrated versus measured. "
         "Objective: " + state.get("objective", "Follow existing mission") + ". Mission done when: " + state.get("done_when", "existing scope completed") + ". "
-         "Current task snapshot (completed entries are history, not instructions): " + json.dumps(tasks, ensure_ascii=False)
+         "Task counts: " + json.dumps(counts, ensure_ascii=False) + ". "
+         "Unfinished task preview (at most six, text truncated; read current state for full notes, evidence and dependencies): " + json.dumps(tasks, ensure_ascii=False)
          + objective_watch.prompt(state))
 
 def alert(state, text):

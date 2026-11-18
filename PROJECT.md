@@ -12,6 +12,16 @@ It is not a model trainer, inference provider, VM allocator or extra AI worker.
 5. A verified whole objective closes continuation; do not manufacture more work.
 6. Keep personal paths and mission data out of the public source tree.
 7. Backups require the user's separately selected private repository.
+8. Wakes resume useful work; routine execution is not a new research experiment.
+9. Tests serve decisions or required checks; reuse unaffected evidence.
+10. Workload checkpoint/backup cadence is independent of iteration boundaries.
+11. State the next action briefly and continue within authorization; unchanged waits
+    need no repeated report. Prompt previews exclude growing completion history.
+
+The task-first policy lives in `skills/grip/SKILL.md`, `OPERATIONS.md` and the
+controller's `prompt()` message. Keep them consistent: editing the skill alone
+does not remove conflicting wake instructions. This policy does not implement a
+trainer's retention strategy or relax controller source-bound completion gates.
 
 ## Existing implementation
 

@@ -46,6 +46,31 @@ class Eligibility(unittest.TestCase):
         self.assertFalse(grip.eligible(state(),{"type":"idle"},m))
 
 class Wake(unittest.TestCase):
+    def test_task_first_prompt_is_bounded_and_preserves_authority(self):
+        s=state(); s.update(workspace='/fixture',state_path='/fixture/state.json',compute_target='fixture only',
+                            minimum_method_attempts=3)
+        s['tasks']=[{'id':str(i),'content':'completed-history-marker'*1000,'status':'completed',
+                     'note':'old notes'*1000,'evidence':{'blob':'old evidence'*1000}} for i in range(200)]
+        s['tasks'] += [{'id':'next-'+str(i),'content':'x'*2000,'status':'pending'} for i in range(30)]
+        s['tasks'].append({'id':'running-job','content':'inspect existing job','status':'waiting',
+                           'note':'large-job-notes-marker'*1000})
+        s['completion']={'phase':'provisional','requirements':['huge-requirements-marker'*1000]}
+        s['objective_guard']={'objective':'authorized scope','done_when':'observed result','scope':'project',
+                              'status':'unreviewed','evidence':{'blob':'huge-goal-evidence-marker'*1000}}
+        import copy
+        before=copy.deepcopy(s)
+        text=grip.prompt(s)
+        self.assertEqual(s,before)
+        for marker in ('completed-history-marker','large-job-notes-marker','huge-requirements-marker',
+                       'huge-goal-evidence-marker','minimum3','bank every iteration privately'):
+            self.assertNotIn(marker,text)
+        for required in ('running-job','at most six','Routine execution needs no mirror experiment or minimum variants',
+                         'next concrete action','Unchanged waits','one short line','no busy-polling',
+                         'Honor newer human stop/pause immediately','Completed tasks stay completed',
+                         'read current state','beyond current authorization'):
+            self.assertIn(required,text)
+        self.assertLess(len(text),12000)
+
     def test_prompt_is_profile_driven(self):
         s=state(); s.update(workspace="/fixture/project",state_path="/fixture/state.json",compute_target="fixture compute",
                             continuation_instructions="fixture-only scope")
@@ -280,12 +305,20 @@ class Vault(unittest.TestCase):
         self.assertEqual(self.s["best"],{"scope":"selected parent"})
         self.assertIn("method:vector-task-v1",self.s["best_by_contract"])
     def test_repeated_identical_failure_is_one_distinct_attempt(self):
+        self.s['minimum_method_attempts']=3  # Explicit research budget, not the default.
         with patch.object(grip,"backup",return_value="commit"):
             for n in range(3):
                 identifier=f"i{n+1:04d}"; self.create_running(identifier)
                 grip.finish(self.s,self.finish_args(identifier))
         self.assertEqual(self.s["families"]["method"]["distinct_attempt_count"],1)
         self.assertFalse(self.s["families"]["method"]["can_park_after_failure"])
+    def test_default_does_not_demand_more_variants(self):
+        self.create_running('i0001')
+        with patch.object(grip,'backup',return_value='commit'):
+            grip.finish(self.s,self.finish_args('i0001'))
+        family=self.s['families']['method']
+        self.assertEqual(family['minimum_distinct_attempts'],0)
+        self.assertTrue(family['can_park_after_failure'])
     def test_promotion_without_metric_contract_refused(self):
         self.create_running("i0001")
         with self.assertRaises(ValueError): grip.finish(self.s,self.finish_args("i0001","report.json"))

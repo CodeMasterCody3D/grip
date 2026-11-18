@@ -11,7 +11,7 @@ QUESTIONS = (
     'If not, what exact work or verified blocker remains?',
     'How can you finish without unnecessary user questions? Recover existing code, records and decisions first.',
     'What concrete fix or bounded action will address the actual cause?',
-    'Can the approach improve? Test positive and mirror/failure cases, preserve the best.',
+    'Is a change or test necessary for the next decision or required check? Otherwise continue approved work; preserve the best.',
     'Does this follow the latest user intent and the recorded authorized objective?',
     'Does it negate a requested feature, discard work or exceed permission/compute boundaries?',
     'If stuck, would source-linked research resolve it within existing authorization?',
@@ -92,9 +92,12 @@ def review(state,*,result,note,evidence,report):
 
 def prompt(state):
     goal=state.get('objective_guard')
+    preview=({k:str(goal.get(k,''))[:400] for k in ('objective','done_when','scope','status')}
+             if goal else None)
     return ('\n[GRIP ELEVEN-QUESTION IDLE REVIEW]\n'+
         '\n'.join(str(i)+'. '+q for i,q in enumerate(QUESTIONS,1))+
-        '\nAuthorized objective record: '+json.dumps(goal,ensure_ascii=False)+
+        '\nReview internally; do not print this checklist or repeat unchanged waiting updates. '+
+        '\nAuthorized objective preview (truncated; full record remains on disk): '+json.dumps(preview,ensure_ascii=False)+
         '\nWhen present, this explicit goal is the latest closure scope; older mission wording remains historical, not permission to resume prior model work. '+
         '\nUse the recorded goal, not a narrower goal you invent. If unfinished, execute/resume a bounded authorized action and record any necessary gap. '+
         'If truly blocked, record the blocker rather than repeatedly waking. If fully verified, close the objective explicitly; no endless improvement loop. '+

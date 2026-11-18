@@ -23,6 +23,13 @@ Along the way, it keeps a record of what changed, what was tested, and what work
 
 [Get started](#get-started) · [Setup and commands](OPERATIONS.md) · [What's changed](CHANGELOG.md)
 
+**Using Codex?** The [Codex setup guide](CODEX.md) adds native lifecycle hooks
+and per-chat activation. Reading real grey-text predictions has been verified.
+The desktop lane waits for a prediction after the response, then sends it with
+GRIP's context or falls back to a review prompt. Optional **infinite mode** keeps
+going without a mission finish condition: repair failed code on the same task,
+then work through existing authorized plans and ideas until Stop/Pause.
+
 ## Keep hold of the goal
 
 A long job takes more than one good reply.
